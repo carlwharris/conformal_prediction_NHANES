@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.linear_model import QuantileRegressor
 import pandas as pd
-
+from sklearn.ensemble import GradientBoostingRegressor
 
 class CP:
     def __init__(self, X_train, X_cal, y_train, y_cal, verbose=1):
@@ -14,24 +14,42 @@ class CP:
 
     # Train a lower (qr_lower) and upper (qr_upper) quantile regressor, as well
     # as a median (qr_med) regressor
-    def train(self, alpha):
+    def train(self, alpha, regressor="QuantileRegressor"):
         self.alpha = alpha
 
-        qr_lower = QuantileRegressor(quantile=alpha / 2, alpha=0, solver="highs")
+        if regressor == "QuantileRegressor":
+            qr_lower = QuantileRegressor(quantile=alpha / 2, alpha=0, solver="highs")
 
-        if self.verbose == 1:
-            print(f"Fitting lower quantile ({alpha / 2})")
-        qr_lower.fit(self.X_train, self.y_train)
+            if self.verbose == 1:
+                print(f"Fitting lower quantile ({alpha / 2})")
+            qr_lower.fit(self.X_train, self.y_train)
 
-        qr_upper = QuantileRegressor(quantile=1 - alpha / 2, alpha=0, solver="highs")
-        if self.verbose == 1:
-            print(f"Fitting upper quantile ({1 - alpha / 2})")
-        qr_upper.fit(self.X_train, self.y_train)
+            qr_upper = QuantileRegressor(quantile=1 - alpha / 2, alpha=0, solver="highs")
+            if self.verbose == 1:
+                print(f"Fitting upper quantile ({1 - alpha / 2})")
+            qr_upper.fit(self.X_train, self.y_train)
 
-        qr_med = QuantileRegressor(quantile=0.5, alpha=0, solver="highs")
-        if self.verbose == 1:
-            print(f"Fitting median quantile (0.5)")
-        qr_med.fit(self.X_train, self.y_train)
+            qr_med = QuantileRegressor(quantile=0.5, alpha=0, solver="highs")
+            if self.verbose == 1:
+                print(f"Fitting median quantile (0.5)")
+            qr_med.fit(self.X_train, self.y_train)
+
+        if regressor == "GradientBoostingRegressor":
+            qr_lower = GradientBoostingRegressor(learning_rate=0.1, n_estimators=100, max_depth=100, alpha=1-alpha/2, loss='quantile')
+
+            if self.verbose == 1:
+                print(f"Fitting lower quantile ({alpha / 2})")
+            qr_lower.fit(self.X_train, self.y_train)
+
+            qr_upper = GradientBoostingRegressor(learning_rate=0.1, n_estimators=100, max_depth=100, alpha=alpha/2, loss='quantile')
+            if self.verbose == 1:
+                print(f"Fitting upper quantile ({1 - alpha / 2})")
+            qr_upper.fit(self.X_train, self.y_train)
+
+            qr_med = GradientBoostingRegressor(learning_rate=0.1, n_estimators=100, max_depth=100)
+            if self.verbose == 1:
+                print(f"Fitting median quantile (0.5)")
+            qr_med.fit(self.X_train, self.y_train)
 
         self.qr_lower = qr_lower
         self.qr_upper = qr_upper
