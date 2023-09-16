@@ -23,25 +23,25 @@ def recode_variables(df):
     df.drop(columns=['Ethnicity'], inplace=True)
 
     # Education
-    df['Ed_less_9th'] = (df['Education'] == 1).astype(int)
+    df['Ed_less_9th'] = (df['Education'] == 1.).astype(int)
     df.loc[df['Education'].isnull(), 'Ed_less_9th'] = np.nan
 
-    df['Ed_9th_11th'] = (df['Education'] == 2).astype(int)
+    df['Ed_9th_11th'] = (df['Education'] == 2.).astype(int)
     df.loc[df['Education'].isnull(), 'Ed_9th_11th'] = np.nan
 
-    df['Ed_HS_GED'] = (df['Education'] == 3).astype(int)
+    df['Ed_HS_GED'] = (df['Education'] == 3.).astype(int)
     df.loc[df['Education'].isnull(), 'Ed_HS_GED'] = np.nan
 
-    df['Ed_some_coll_AA'] = (df['Education'] == 4).astype(int)
+    df['Ed_some_coll_AA'] = (df['Education'] == 4.).astype(int)
     df.loc[df['Education'].isnull(), 'Ed_some_coll_AA'] = np.nan
 
-    df['Ed_coll_above'] = (df['Education'] == 5).astype(int)
+    df['Ed_coll_above'] = (df['Education'] == 5.).astype(int)
     df.loc[df['Education'].isnull(), 'Ed_coll_above'] = np.nan
 
-    df['Ed_refused'] = (df['Education'] == 7).astype(int)
+    df['Ed_refused'] = (df['Education'] == 7.).astype(int)
     df.loc[df['Education'].isnull(), 'Ed_refused'] = np.nan
 
-    df['Ed_dk'] = (df['Education'] == 9).astype(int)
+    df['Ed_dk'] = (df['Education'] == 9.).astype(int)
     df.loc[df['Education'].isnull(), 'Ed_dk'] = np.nan
     df.drop(columns=['Education'], inplace=True)
 
