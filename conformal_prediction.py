@@ -5,20 +5,25 @@ from sklearn.ensemble import GradientBoostingRegressor
 from preprocess_data import recode_variables, split_train_cal_test
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.metrics import d2_pinball_score, make_scorer
-from qrnn import get_model, qloss, compute_quantile_loss, get_model_nn, qloss_nn
+
+from qrnn import create_nn_model, qloss_nn
 from keras.callbacks import *
 import tensorflow as tf
 import warnings
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-def mqloss(y_true, y_pred, alpha):
-  if (alpha > 0) and (alpha < 1):
-    residual = y_true - y_pred
-    return np.mean(residual * (alpha - (residual<0)))
-  else:
-    return np.nan
+import logging
+logging.getLogger('tensorflow').setLevel(logging.ERROR)
 
 class CP:
-    def __init__(self, X_train, X_cal, y_train, y_cal, alpha, regressor="QuantileRegressor", verbose=1):
+    # regressor: QuantileRegressor/QR, GradientBoostingRegressor/QBR, NN
+    def __init__(self, X_train, X_cal, y_train, y_cal, alpha, regressor="QR", verbose=1):
+        if regressor == "QR":
+            regressor = "QuantileRegressor"
+        elif regressor == "GBR":
+            regressor = "GradientBoostingRegressor"
+
         self.X_train = X_train
         self.X_cal = X_cal
         self.y_train = y_train
@@ -30,47 +35,92 @@ class CP:
 
         self.hyperparameters = None
         self.models = None
+        self.scores = None
 
+    # search_type: RandomizedSearchCV ("random") or  GridSearchCV("grid")
 
     def hyperparam_search(self, search_type="random", n_iter=50):
+        if self.regressor == "NN":
+            return
 
         self.hyperparameters = {}
-
         quantiles = [self.alpha / 2, 0.5, 1 - self.alpha / 2]
         labels = ['lower', 'median', 'upper']
 
         for label, quantile in zip(labels, quantiles):
-            if self.regressor == "QuantileRegressor":
-                reg = QuantileRegressor(quantile=quantile, alpha=0, solver="highs")
-                alpha_vals = np.logspace(0.0, 1, 10, base=10) / 10. - 0.1
-                params = [{'alpha': alpha_vals}]
-
-            if self.regressor == "GradientBoostingRegressor":
-                reg = GradientBoostingRegressor(alpha=quantile, loss='quantile')
-                params = [{'learning_rate': [0.01, 0.1, 1],
-                           'n_estimators': [10, 50, 100, 100],
-                           'max_depth': [1, 3, 5, 10, 25, 50],
-                           'subsample': [.5, .75, 1]}]
+            mdl = self._get_untrained_mdl(label)
+            params = self._get_hyperparameter_set()
 
             if search_type == "random":
-                searcher = RandomizedSearchCV(reg,
-                                              param_distributions=params,
+                searcher = RandomizedSearchCV(mdl, param_distributions=params,
                                               scoring=make_scorer(d2_pinball_score, alpha=quantile),
                                               cv=5, verbose=self.verbose, n_jobs=-1, n_iter=n_iter)
 
             if search_type == "grid":
-                searcher = GridSearchCV(reg,
-                                  param_grid=params,
-                                  scoring=make_scorer(d2_pinball_score, alpha=quantile),
-                                  cv=5, verbose=self.verbose)
+                searcher = GridSearchCV(mdl, param_grid=params, scoring=make_scorer(d2_pinball_score, alpha=quantile),
+                                        cv=5, verbose=self.verbose)
+
+            self.txt_out(f"Hyperparameter optimization for {self.regressor} model using {search_type} search over parameter set:")
+            self.txt_out(params)
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 searcher.fit(self.X_train, self.y_train)
-            print(searcher.best_score_)
-            print(searcher.best_params_)
+
+            self.txt_out(f"  - best score: {searcher.best_score_}")
+            self.txt_out(f"  - best params: {searcher.best_params_}\n")
 
             self.hyperparameters[label] = searcher.best_params_
+
+    def _get_hyperparameter_set(self):
+        if self.regressor == "QuantileRegressor":
+            alpha_vals = np.logspace(0.0, 1, 10, base=10) / 10. - 0.1
+            params = [{'alpha': alpha_vals}]
+
+        if self.regressor == "GradientBoostingRegressor":
+            params = [{'learning_rate': [0.01, 0.1, 1],
+                       'n_estimators': [10, 50, 100, 100],
+                       'max_depth': [1, 3, 5, 10, 25, 50],
+                       'subsample': [.5, .75, 1]}]
+        return params
+    def _get_untrained_mdl(self, label):
+        labels = ['lower', 'median', 'upper']
+        quantiles = [self.alpha / 2, 0.5, 1 - self.alpha / 2]
+
+        if self.hyperparameters is None:
+            hyperparams = {}
+        else:
+            if label in self.hyperparameters.keys():
+                hyperparams = self.hyperparameters[label]
+            else:
+                hyperparams = {}
+
+        alpha = quantiles[labels.index(label)]
+        if self.regressor == "QuantileRegressor":
+            if len(hyperparams) == 0:
+                hyperparams = {'alpha': 0}
+            model = QuantileRegressor(quantile=alpha, solver="highs", **hyperparams)
+
+        if self.regressor == "GradientBoostingRegressor":
+            model = GradientBoostingRegressor(alpha=alpha, loss='quantile', **hyperparams)
+
+        if self.regressor == "NN":
+            input_dim = self.X_train.shape[1]
+            num_units = [200]
+            activations = ['relu']
+            gauss_std = [0]
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                # Get model
+                model = create_nn_model(input_dim, num_units, activations, gauss_std=gauss_std)
+
+                early_stopping = EarlyStopping(monitor='val_loss', patience=3)
+                model.compile(loss=lambda y_t, y_p: qloss_nn(y_true=y_t, y_pred=y_p, q=alpha),
+                              optimizer=tf.keras.optimizers.legacy.Adam(learning_rate=1e-3))
+            # model.compile(loss=lambda y_t, y_p: compute_quantile_loss(y_true=y_t, y_pred=y_p, quantile=0.05), optimizer='adam')
+
+        return model
 
     # Train a lower (qr_lower) and upper (qr_upper) quantile regressor, as well
     # as a median (qr_med) regressor
@@ -83,64 +133,33 @@ class CP:
             if self.verbose == 1:
                 print(f"Fitting {label} quantile ({quantile})")
 
-            if self.regressor == "nn":
-                input_dim = self.X_train.shape[1]
-                num_hidden_layers = 1
-                num_units = [200]
-                act = ['relu']
-                gauss_std = [0]
-                num_quantiles = 39
-
-                # Get model
-                model = get_model_nn(input_dim, num_units, act, gauss_std=gauss_std,
-                                     num_hidden_layers=num_hidden_layers)
-
-                early_stopping = EarlyStopping(monitor='val_loss', patience=3)
-                model.compile(loss=lambda y_t, y_p: qloss_nn(y_true=y_t, y_pred=y_p, q=quantile),
-                              optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4))
-                # model.compile(loss=lambda y_t, y_p: compute_quantile_loss(y_true=y_t, y_pred=y_p, quantile=0.05), optimizer='adam')
-
-                model.fit(x=self.X_train.astype('float32'), y=self.y_train.astype('float32'),
-                          epochs=100,
-                          validation_split=0.25,
-                          batch_size=16,
-                          shuffle=True,
-                          callbacks=[early_stopping])
-
+            model = self._get_untrained_mdl(label)
             if self.regressor == "QuantileRegressor":
-                model = QuantileRegressor(quantile=quantile, solver="highs", **self.hyperparameters['lower'])
                 model.fit(self.X_train, self.y_train)
 
             if self.regressor == "GradientBoostingRegressor":
-                model = GradientBoostingRegressor(alpha=quantile, loss='quantile', **self.hyperparameters['lower'])
                 model.fit(self.X_train, self.y_train)
+
+            if self.regressor == "NN":
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    early_stopping = EarlyStopping(monitor='val_loss', patience=3)
+                    model.fit(x=self.X_train.astype('float32'), y=self.y_train.astype('float32'),
+                              epochs=50,
+                              validation_split=0.25,
+                              batch_size=16,
+                              shuffle=True,
+                              callbacks=[early_stopping])
 
             self.models[label] = model
 
-    # Given df X, predict lower, upper, and median quantiles using regressors. Return
-    # as dataframe with columns y_median, y_lower, y_upper
-    def predict_quantiles(self, X, y_true):
-        df_dict = {'y_true': y_true}
-        for label in ['lower', 'median', 'upper']:
-            curr_preds = self.models[label].predict(X.astype('float32'))
-            print(curr_preds.shape)
-            df_dict[label] = curr_preds.flatten()
-        pred_df = pd.DataFrame(df_dict, index=X.index)
-        return pred_df
 
-    # Calculate scores using X_cal and lower/upper quantiles. Return scores and
-    # save to object as self.scores
-    def calculate_scores(self):
-        y_df = self.predict_quantiles(self.X_cal, self.y_cal)
-        lower_diff = y_df['lower'] - self.y_cal
-        upper_diff = self.y_cal - y_df['upper']
-        scores = pd.concat([lower_diff, upper_diff], axis=1).max(axis=1)
-        scores.name = 'scores'
-        self.scores = scores
-        return scores
 
     # Calculate the quantile of the score at level alpha, return qhat and save to object
     def calc_qhat(self):
+        if self.scores is None:
+            self.calculate_scores()
+
         n = len(self.scores)
         qhat = np.quantile(self.scores, np.ceil((n + 1) * (1 - self.alpha)) / n, method='higher')
         self.qhat = qhat
@@ -149,10 +168,43 @@ class CP:
             print(f"At alpha={self.alpha}, qhat = {qhat}")
         return qhat
 
+    # Calculate scores using X_cal and lower/upper quantiles. Return scores and
+    # save to object as self.scores
+    def calculate_scores(self):
+        if self.verbose == 1:
+            print("Calculating scores")
+
+        y_df = self.predict_mdl_quantiles(self.X_cal, self.y_cal)
+        lower_diff = y_df['lower'] - self.y_cal
+        upper_diff = self.y_cal - y_df['upper']
+        scores = pd.concat([lower_diff, upper_diff], axis=1).max(axis=1)
+        scores.name = 'scores'
+        self.scores = scores
+        return scores
+
+    def predict_cp_quantiles(self, X, y_true=None):
+        init_preds = self.predict_mdl_quantiles(X, y_true)
+        cp_pred_df = self.conformalize_CIs(init_preds)
+        return cp_pred_df
+
+    # Given df X, predict lower, upper, and median quantiles using regressors. Return
+    # as dataframe with columns y_median, y_lower, y_upper
+    def predict_mdl_quantiles(self, X, y_true=None):
+        if y_true is None:
+            df_dict = {}
+        else:
+            df_dict = {'y_true': y_true}
+
+        for label in ['lower', 'median', 'upper']:
+            curr_preds = self.models[label].predict(X.astype('float32'))
+            df_dict[label] = curr_preds.flatten()
+        pred_df = pd.DataFrame(df_dict, index=X.index)
+        return pred_df
+
     # Given dataframe with entries y_lower and y_upper, scale by q_hat and return
     # df with (calibrated) entries y_lower and y_upper
     def conformalize_CIs(self, pred_df, qhat=None):
-        if qhat == None:
+        if qhat is None:
             qhat = self.qhat
 
         cp_pred_df = pred_df.copy()
@@ -164,6 +216,13 @@ class CP:
         cp_pred_df['upper'] = cp_pred_df['upper'] + qhat
         cp_pred_df['diff'] = cp_pred_df['upper'] - cp_pred_df['lower']
         return cp_pred_df
+
+    def txt_out(self, s, lvl=1):
+        if self.verbose == 0:
+            return
+
+        if self.verbose >= lvl:
+            print(s)
 
 # Given dataframe with estimated lower and upper bounds, and the true value, calculate
 # the proportion of rows where the true value falls wtihin the predicted confidence
