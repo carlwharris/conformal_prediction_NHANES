@@ -12,6 +12,7 @@ import tensorflow as tf
 import warnings
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+from qrnn import NN_Estimator
 
 import logging
 logging.getLogger('tensorflow').setLevel(logging.ERROR)
@@ -40,9 +41,6 @@ class CP:
     # search_type: RandomizedSearchCV ("random") or  GridSearchCV("grid")
 
     def hyperparam_search(self, search_type="random", n_iter=50):
-        if self.regressor == "NN":
-            return
-
         self.hyperparameters = {}
         quantiles = [self.alpha / 2, 0.5, 1 - self.alpha / 2]
         labels = ['lower', 'median', 'upper']
@@ -82,6 +80,11 @@ class CP:
                        'n_estimators': [10, 50, 100, 100],
                        'max_depth': [1, 3, 5, 10, 25, 50],
                        'subsample': [.5, .75, 1]}]
+
+        if self.regressor == "NN":
+            params = [{'n_units': [10, 20, 50, 100],
+                       'n_layers': [1, 2, 3],
+                       'alpha': [self.alpha]}]
         return params
     def _get_untrained_mdl(self, label):
         labels = ['lower', 'median', 'upper']
@@ -105,19 +108,7 @@ class CP:
             model = GradientBoostingRegressor(alpha=alpha, loss='quantile', **hyperparams)
 
         if self.regressor == "NN":
-            input_dim = self.X_train.shape[1]
-            num_units = [200]
-            activations = ['relu']
-            gauss_std = [0]
-
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                # Get model
-                model = create_nn_model(input_dim, num_units, activations, gauss_std=gauss_std)
-
-                early_stopping = EarlyStopping(monitor='val_loss', patience=3)
-                model.compile(loss=lambda y_t, y_p: qloss_nn(y_true=y_t, y_pred=y_p, q=alpha),
-                              optimizer=tf.keras.optimizers.legacy.Adam(learning_rate=1e-3))
+            model = NN_Estimator(n_units=50, n_layers=1, alpha=0.05)
             # model.compile(loss=lambda y_t, y_p: compute_quantile_loss(y_true=y_t, y_pred=y_p, quantile=0.05), optimizer='adam')
 
         return model
@@ -152,8 +143,6 @@ class CP:
                               callbacks=[early_stopping])
 
             self.models[label] = model
-
-
 
     # Calculate the quantile of the score at level alpha, return qhat and save to object
     def calc_qhat(self):
