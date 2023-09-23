@@ -2,7 +2,7 @@ import numpy as np
 from sklearn.linear_model import QuantileRegressor
 import pandas as pd
 from sklearn.ensemble import GradientBoostingRegressor
-from preprocess_data import recode_variables, split_train_cal_test
+from preprocess_data import  split_train_cal_test
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.metrics import d2_pinball_score, make_scorer
 
@@ -39,7 +39,6 @@ class CP:
         self.scores = None
 
     # search_type: RandomizedSearchCV ("random") or  GridSearchCV("grid")
-
     def hyperparam_search(self, search_type="random", n_iter=50):
         self.hyperparameters = {}
         quantiles = [self.alpha / 2, 0.5, 1 - self.alpha / 2]
@@ -86,6 +85,7 @@ class CP:
                        'n_layers': [1, 2, 3],
                        'alpha': [self.alpha]}]
         return params
+
     def _get_untrained_mdl(self, label):
         labels = ['lower', 'median', 'upper']
         quantiles = [self.alpha / 2, 0.5, 1 - self.alpha / 2]
@@ -108,8 +108,7 @@ class CP:
             model = GradientBoostingRegressor(alpha=alpha, loss='quantile', **hyperparams)
 
         if self.regressor == "NN":
-            model = NN_Estimator(n_units=50, n_layers=1, alpha=0.05)
-            # model.compile(loss=lambda y_t, y_p: compute_quantile_loss(y_true=y_t, y_pred=y_p, quantile=0.05), optimizer='adam')
+            model = NN_Estimator(**hyperparams)
 
         return model
 
@@ -132,15 +131,7 @@ class CP:
                 model.fit(self.X_train, self.y_train)
 
             if self.regressor == "NN":
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    early_stopping = EarlyStopping(monitor='val_loss', patience=3)
-                    model.fit(x=self.X_train.astype('float32'), y=self.y_train.astype('float32'),
-                              epochs=50,
-                              validation_split=0.25,
-                              batch_size=16,
-                              shuffle=True,
-                              callbacks=[early_stopping])
+                model.fit(self.X_train, self.y_train)
 
             self.models[label] = model
 

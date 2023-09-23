@@ -1,25 +1,32 @@
 import numpy as np
 from sklearn.model_selection import train_test_split
+import pandas as pd
 
-def recode_variables(df):
+def recode_variables_NHANES(df):
+    df = df.replace(to_replace=' ', value=np.nan)
+    df['Education'] = df['Education'].astype(float)
+
+    # RENAME TO CAPS
+    df['AGE'] = df['Age']
+    df['WEIGHT'] = df['Weight']
+    df['HEIGHT'] = df['Height']
+    df['WAIST'] = df['Waist']
+
     # Gender
-    df['Female'] = df['Gender'] - 1
+    df['FEMALE'] = df['Gender'] - 1
 
     # Ethnicity
-    df['Eth_Mex_Am'] = (df['Ethnicity'] == 1).astype(int)
-    df.loc[df['Ethnicity'].isnull(), 'Eth_Mex_Am'] = np.nan
+    df['HISPANIC'] = ((df['Ethnicity'] == 1) | (df['Ethnicity'] == 2)).astype(int)
+    df.loc[df['Ethnicity'].isnull(), 'HISPANIC'] = np.nan
 
-    df['Eth_Oth_Hisp'] = (df['Ethnicity'] == 2).astype(int)
-    df.loc[df['Ethnicity'].isnull(), 'Eth_Oth_Hisp'] = np.nan
+    df['WHITE'] = (df['Ethnicity'] == 3).astype(int)
+    df.loc[df['Ethnicity'].isnull(), 'WHITE'] = np.nan
 
-    df['Eth_Nonhisp_White'] = (df['Ethnicity'] == 3).astype(int)
-    df.loc[df['Ethnicity'].isnull(), 'Eth_Nonhisp_White'] = np.nan
+    df['BLACK'] = (df['Ethnicity'] == 4).astype(int)
+    df.loc[df['Ethnicity'].isnull(), 'BLACK'] = np.nan
 
-    df['Eth_Nonhisp_Black'] = (df['Ethnicity'] == 4).astype(int)
-    df.loc[df['Ethnicity'].isnull(), 'Eth_Nonhisp_Black'] = np.nan
-
-    df['Eth_Other'] = (df['Ethnicity'] == 5).astype(int)
-    df.loc[df['Ethnicity'].isnull(), 'Eth_Other'] = np.nan
+    df['OTHER_MIXED'] = (df['Ethnicity'] == 5).astype(int)
+    df.loc[df['Ethnicity'].isnull(), 'OTHER_MIXED'] = np.nan
     df.drop(columns=['Ethnicity'], inplace=True)
 
     # Education
@@ -46,6 +53,25 @@ def recode_variables(df):
     df.drop(columns=['Education'], inplace=True)
 
     return df
+
+def recode_variables_LOOK_AHEAD(df):
+    df = df.replace(to_replace='Missing', value=np.nan)
+    new_df = pd.DataFrame(index=df['P_ID'])
+    new_df['FEMALE'] = df['FEMALE'].map({'Yes': 1, 'No': 0}).values
+
+    # RACE/ETHNICITY
+    new_df['WHITE'] = (df['RACEVAR'] == 'White').astype('int').values
+    new_df['HISPANIC'] = (df['RACEVAR'] == 'Hispanic').astype('int').values
+    new_df['BLACK'] = (df['RACEVAR'] == 'African American / Black (not Hispanic)').astype('int').values
+    new_df['OTHER_MIXED'] = (df['RACEVAR'] == 'Other/Mixed').astype('int').values
+
+    new_df['BMI'] = df['bmi'].values
+    new_df['AGE'] = df['age'].values
+    new_df['WEIGHT'] = ((df['weight1_kg'] + df['weight2_kg']) / 2).values
+    new_df['HEIGHT'] = df['eshgt_mean'].values
+    new_df['WAIST'] = df['waistcm_mean'].values
+    return new_df
+
 
 def split_train_cal_test(X, y, trn_prop, cal_prop):
     X_train, X_test_cal, y_train, y_test_cal = train_test_split(X, y, train_size=trn_prop)
