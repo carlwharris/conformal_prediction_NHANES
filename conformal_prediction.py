@@ -108,6 +108,8 @@ class CP:
             model = GradientBoostingRegressor(alpha=alpha, loss='quantile', **hyperparams)
 
         if self.regressor == "NN":
+            if len(hyperparams) == 0:
+                hyperparams = {'alpha': alpha}
             model = NN_Estimator(**hyperparams)
 
         return model
@@ -136,9 +138,9 @@ class CP:
             self.models[label] = model
 
     # Calculate the quantile of the score at level alpha, return qhat and save to object
-    def calc_qhat(self):
-        if self.scores is None:
-            self.calculate_scores()
+    def calc_qhat(self, X_cal=None, y_cal = None):
+        # if self.scores is None:
+        self.calculate_scores(X_cal, y_cal)
 
         n = len(self.scores)
         qhat = np.quantile(self.scores, np.ceil((n + 1) * (1 - self.alpha)) / n, method='higher')
@@ -150,13 +152,17 @@ class CP:
 
     # Calculate scores using X_cal and lower/upper quantiles. Return scores and
     # save to object as self.scores
-    def calculate_scores(self):
+    def calculate_scores(self,X_cal=None, y_cal=None):
+        if X_cal is None:
+            X_cal = self.X_cal
+            y_cal = self.y_cal
+
         if self.verbose == 1:
             print("Calculating scores")
 
-        y_df = self.predict_mdl_quantiles(self.X_cal, self.y_cal)
-        lower_diff = y_df['lower'] - self.y_cal
-        upper_diff = self.y_cal - y_df['upper']
+        y_df = self.predict_mdl_quantiles(X_cal, y_cal)
+        lower_diff = y_df['lower'] - y_cal
+        upper_diff = y_cal - y_df['upper']
         scores = pd.concat([lower_diff, upper_diff], axis=1).max(axis=1)
         scores.name = 'scores'
         self.scores = scores
