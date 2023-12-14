@@ -55,7 +55,7 @@ class CP:
 
             if search_type == "grid":
                 searcher = GridSearchCV(mdl, param_grid=params, scoring=make_scorer(d2_pinball_score, alpha=quantile),
-                                        cv=5, verbose=self.verbose)
+                                        cv=10, verbose=self.verbose)
 
             self.txt_out(f"Hyperparameter optimization for {self.regressor} model using {search_type} search over parameter set:")
             self.txt_out(params)
@@ -209,6 +209,9 @@ class CP:
 
         if self.verbose >= lvl:
             print(s)
+
+    def get_diff(self, X):
+        return self.models['upper'].predict(X) - self.models['lower'].predict(X)
 
 # Given dataframe with estimated lower and upper bounds, and the true value, calculate
 # the proportion of rows where the true value falls wtihin the predicted confidence

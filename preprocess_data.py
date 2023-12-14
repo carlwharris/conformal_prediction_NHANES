@@ -113,7 +113,7 @@ def recode_variables_LOOK_AHEAD(df):
     return new_df
 
 
-def split_train_cal_test(X, y, trn_prop, cal_prop):
+def split_train_cal_test(X, y, trn_prop, cal_prop, random_state=42):
     """
     Split the dataset into training, calibration, and test sets.
 
@@ -127,8 +127,18 @@ def split_train_cal_test(X, y, trn_prop, cal_prop):
         tuple: Training, calibration, and test sets.
     """
 
-    X_train, X_test_cal, y_train, y_test_cal = train_test_split(X, y, train_size=trn_prop)
+    X_train, X_test_cal, y_train, y_test_cal = train_test_split(X, y, train_size=trn_prop, random_state=random_state)
     cal_prop_rel = cal_prop / (1 - trn_prop)
-    X_cal, X_test, y_cal, y_test = train_test_split(X_test_cal, y_test_cal, train_size=cal_prop_rel)
+    X_cal, X_test, y_cal, y_test = train_test_split(X_test_cal, y_test_cal, train_size=cal_prop_rel, random_state=random_state  )
 
-    return X_train, X_cal, X_test, y_train, y_cal, y_test
+    X = {}
+    X['train'] = X_train
+    X['cal'] = X_cal
+    X['test'] = X_test
+
+    y = {}
+    y['train'] = y_train
+    y['cal'] = y_cal
+    y['test'] = y_test
+
+    return X,y
